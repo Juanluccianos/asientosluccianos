@@ -1327,24 +1327,50 @@ async function adminSalud(el) {
 async function adminEmpresas(el) {
   const r = await api('/api/empresas');
   S.empresas = r.empresas;
-  el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-ne">${ICO.plus}Nueva empresa</button></div>
-    <p class="small muted">El año y las fechas del ejercicio tienen que ser los que tiene configurados Shares para cada empresa (Empresa.Anio, PDesde y PHasta). Cuando Shares abre el ejercicio nuevo, actualizalos acá.</p>
+  el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-fact">${ICO.download}Traer de la app de facturas</button><button class="btn" id="b-ne">${ICO.plus}Nueva empresa a mano</button></div>
+    <p class="small muted">El año del ejercicio es el que tiene abierto Shares para la empresa. Si no lo sabés, dejá el año en curso: si no coincide, Shares rechaza el primer asiento (sin registrar nada), avisa cuál es el correcto y la app lo corrige sola. Las fechas de inicio y cierre son opcionales.</p>
     <div class="tabla-wrap"><table><thead><tr><th>CUIT</th><th>Razón social</th><th>Año</th><th>Ejercicio</th><th class="num">Cuentas</th><th>Estado</th><th></th></tr></thead><tbody>
     ${r.empresas.map(e => `<tr><td class="mono">${fmtCuit(e.cuit)}</td><td>${esc(e.razon_social)}</td><td class="mono">${esc(e.periodo_contable || '—')}</td>
       <td class="mono">${e.pdesde && e.phasta ? `${fmtF(e.pdesde)} al ${fmtF(e.phasta)}` : '<span class="txt-warn">sin fechas</span>'}</td><td class="num">${e.cuentas || '—'}</td>
       <td>${e.activa ? 'Activa' : '<span class="muted">Inactiva</span>'}</td><td class="acciones"><button class="btn btn-chico" data-ed="${e.cuit}">Editar</button><button class="btn btn-chico btn-rojo" data-del="${e.cuit}">Quitar</button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin empresas cargadas.</td></tr>'}
     </tbody></table></div>`;
-  const form = (e = {}) => modal(`<h2>${e.cuit ? 'Editar empresa' : 'Nueva empresa'}</h2><form id="f-emp">
+  const form = (e = {}) => modal(`<h2>${e.cuit && !e.nueva ? 'Editar empresa' : 'Nueva empresa'}</h2><form id="f-emp">
       <div class="fila"><div class="campo"><label>CUIT</label><input name="cuit" class="mono" value="${esc(e.cuit || '')}" ${e.cuit ? 'readonly' : ''} required></div>
       <div class="campo"><label>Año del ejercicio en Shares</label><input name="periodo_contable" class="mono" inputmode="numeric" value="${esc(e.periodo_contable || new Date().getFullYear())}" required></div></div>
+      <div class="ayuda" style="margin:-4px 0 12px">Si no estás seguro, dejá el año en curso: si Shares tiene otro, lo avisa en el primer envío y la app lo corrige.</div>
       <div class="campo"><label>Razón social</label><input name="razon_social" value="${esc(e.razon_social || '')}" required></div>
       <div class="fila"><div class="campo"><label>Inicio del ejercicio</label><input type="date" name="pdesde" value="${esc(e.pdesde || '')}"></div><div class="campo"><label>Cierre del ejercicio</label><input type="date" name="phasta" value="${esc(e.phasta || '')}"></div></div>
-      <div class="ayuda" style="margin:-4px 0 12px">Con las fechas, la app avisa antes de enviar un asiento fuera del ejercicio (si no, lo rechaza Shares).</div>
+      <div class="ayuda" style="margin:-4px 0 12px">Opcionales. Si el ejercicio cierra el 31/12, es del 01/01 al 31/12 de ese año. Con las fechas, la app avisa antes de enviar un asiento fuera del ejercicio; sin ellas, lo controla Shares.</div>
       <label class="check"><input type="checkbox" name="activa" ${e.activa === 0 ? '' : 'checked'}> Activa</label>
       <button class="btn btn-negro" type="submit">Guardar</button></form>`, {
-    alMontar: (m, cerrar) => { $('#f-emp', m).onsubmit = (ev) => { ev.preventDefault(); const b = Object.fromEntries(new FormData(ev.target)); b.activa = !!ev.target.activa.checked; conBoton($('button[type=submit]', ev.target), async () => { await api('/api/empresas', { method: 'POST', body: b }); cerrar(); toast('Empresa guardada'); S.empresas = null; adminEmpresas(el); }); }; },
+    alMontar: (m, cerrar) => { $('#f-emp', m).onsubmit = (ev) => { ev.preventDefault(); const b = Object.fromEntries(new FormData(ev.target)); b.activa = !!ev.target.elements.activa.checked; conBoton($('button[type=submit]', ev.target), async () => { await api('/api/empresas', { method: 'POST', body: b }); cerrar(); toast('Empresa guardada'); S.empresas = null; adminEmpresas(el); }); }; },
   });
   $('#b-ne', el).onclick = () => form();
+  // Las dos apps están en el mismo sitio (juanluccianos.github.io): si ya entraste a facturas en este navegador,
+  // se usa esa sesión para leer sus empresas (solo lectura; no se toca nada de facturas).
+  $('#b-fact', el).onclick = () => conBoton($('#b-fact', el), async () => {
+    let tokF = null, apiF = 'https://facturas-api.lucciano-viaticos.workers.dev';
+    try { tokF = localStorage.getItem('facturas_token'); apiF = (localStorage.getItem('facturas_api') || apiF).replace(/\/$/, ''); } catch { }
+    const sinSesion = () => modal(`<h2>Primero entrá a la app de facturas</h2><p>Para leer las empresas necesito tu sesión de facturas en <b>este mismo navegador</b>.</p>
+      <p class="muted">Abrí la app de facturas, ingresá con tu usuario, volvé a esta pestaña y tocá de nuevo “Traer de la app de facturas”.</p>
+      <div class="acciones" style="justify-content:flex-end"><a class="btn btn-negro" href="https://juanluccianos.github.io/facturasluccianos/" target="_blank" rel="noopener">Abrir facturas</a></div>`);
+    if (!tokF) return sinSesion();
+    let lista;
+    try {
+      const res = await fetch(apiF + '/api/empresas', { headers: { Authorization: 'Bearer ' + tokF } });
+      if (res.status === 401) return sinSesion();
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      lista = (await res.json()).empresas || [];
+    } catch (e) { throw new Error('No pude leer las empresas de facturas (' + e.message + ').'); }
+    const ya = new Set(r.empresas.map(x => x.cuit));
+    if (!lista.length) { toast('La app de facturas no tiene empresas cargadas.', true); return; }
+    modal(`<h2>Empresas de la app de facturas</h2><p class="muted" style="margin-top:-6px">Elegí cuál agregar. Después confirmás el año del ejercicio.</p>
+      <div class="tabla-wrap"><table class="sin-orden"><tbody>${lista.map(x => `<tr><td class="mono">${fmtCuit(x.cuit)}</td><td>${esc(x.razon_social)}</td>
+        <td class="num">${ya.has(x.cuit) ? '<span class="badge b-ok">Ya está</span>' : `<button class="btn btn-chico btn-negro" data-agregar="${esc(x.cuit)}">Agregar</button>`}</td></tr>`).join('')}</tbody></table></div>`, {
+      ancho: true,
+      alMontar: (m, cerrar) => $$('[data-agregar]', m).forEach(b => b.onclick = () => { const x = lista.find(y => y.cuit === b.dataset.agregar); cerrar(); form({ cuit: x.cuit, razon_social: x.razon_social, nueva: true }); }),
+    });
+  });
   $$('[data-ed]', el).forEach(b => b.onclick = () => form(r.empresas.find(x => x.cuit === b.dataset.ed)));
   $$('[data-del]', el).forEach(b => b.onclick = async () => await confirmar('¿Quitar esta empresa y su plan de cuentas?') && conBoton(b, async () => { await api('/api/empresas/' + b.dataset.del, { method: 'DELETE' }); S.empresas = null; adminEmpresas(el); }));
 }
