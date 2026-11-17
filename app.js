@@ -692,6 +692,7 @@ const RUTAS = [
   { re: /^#\/lotes$/, v: vistaLotes, nav: 'lotes', miga: 'Trabajo / <b>Archivos subidos</b>' },
   { re: /^#\/lote\/(\d+)$/, v: vistaLote, nav: 'lotes', miga: 'Trabajo / Archivos subidos / <b>Archivo</b>' },
   { re: /^#\/admin$/, v: vistaAdmin, nav: 'admin', miga: 'Datos / <b>Configuración</b>' },
+  { re: /^#\/guia$/, v: vistaGuia, nav: 'guia', miga: '<b>Guía de uso</b>' },
   { re: /^#\/cuenta$/, v: vistaMiCuenta, nav: '', miga: '<b>Mi cuenta</b>' },
 ];
 
@@ -717,6 +718,8 @@ function shell(ruta) {
         ${it('asientos', 'table', 'Asientos', '<span class="cnt hot" data-cnt="dudosos"></span>')}
         ${it('lotes', 'layers', 'Archivos subidos')}
         ${puede('admin') ? `<div class="grp-t">Datos</div>${it('admin', 'gear', 'Configuración')}` : ''}
+        <div class="grp-t">Ayuda</div>
+        ${it('guia', 'book', 'Guía de uso')}
       </nav>
       <div class="me"><a class="av" href="#/cuenta" title="Mi cuenta">${esc(iniciales(S.user.nombre))}</a>
         <a class="who" href="#/cuenta"><b>${esc(S.user.nombre)}</b><small>${esc(rol)}</small></a>
@@ -724,7 +727,7 @@ function shell(ruta) {
     </aside>
     <div style="min-width:0">
       <header class="top"><img class="marca-m" src="logo-negro.png" alt="Lucciano's"><div class="crumbs">${ruta.miga}</div>
-        <label class="buscar">${ICO.search}<input id="buscar-global" placeholder="Buscar asiento, cuenta o N° de Shares…" aria-label="Buscar"><kbd>Ctrl K</kbd></label>
+        <label class="buscar">${ICO.search}<input id="buscar-global" placeholder="Buscar asiento o cuenta…" title="Buscá por asiento, observación, cuenta o N° de Shares" aria-label="Buscar"><kbd>Ctrl K</kbd></label>
         <div class="estado-sis" title="Envío a Shares"><i style="${okEnvio ? '' : 'background:var(--warn);box-shadow:0 0 0 3px var(--warn-bg)'}"></i>${esc(txtEnvio)}</div><button class="ibtn" id="b-actualizar" title="Actualizar" aria-label="Actualizar">${ICO.refresh}</button></header>
       <main id="vista" class="entra"><div class="vacio"><span class="cargando"></span></div></main>
     </div></div>
@@ -797,6 +800,7 @@ async function iniciar() {
   try { await cargarYo(); } catch { return vistaLogin(); }
   empresas().catch(() => null);
   await router();
+  bienvenida();
 }
 window.addEventListener('hashchange', router);
 document.addEventListener('DOMContentLoaded', iniciar);
@@ -882,7 +886,10 @@ async function vistaInicio(el) {
   const n = (k) => pe[k]?.n || 0;
   const enviar = n('pendiente') + n('error'), errores = n('observado') + n('error');
   const primerNombre = String(S.user.nombre || '').split(' ')[0];
-  el.innerHTML = `<div class="encabezado"><div><h1>Hola${primerNombre ? ', ' + esc(primerNombre) : ''}</h1><p>Subí el Excel, revisá los controles y mandá los asientos a Shares. Cada uno se envía una sola vez y queda con el número que asigna el ERP.</p></div>
+  const hora = new Date().getHours();
+  const saludo = hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
+  const hoyTxt = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  el.innerHTML = `<div class="encabezado"><div><h1>${saludo}${primerNombre ? ', ' + esc(primerNombre) : ''}</h1><p>${esc(hoyTxt.charAt(0).toUpperCase() + hoyTxt.slice(1))} · cada asiento se envía una sola vez y queda con el número que asigna Shares</p></div>
       <div class="acciones"><a class="btn btn-acento" href="#/importar">${ICO.upload}Importar Excel</a></div></div>
     ${!t.empresas ? `<div class="panel panel-pad" style="margin-bottom:16px"><h2 style="margin-bottom:6px">Falta configurar las empresas</h2><p class="muted" style="margin:0 0 12px">Para cargar asientos, cada sociedad necesita su CUIT y el año del ejercicio tal como está en Shares.${puede('admin') ? '' : ' Pedíselo a un administrador.'}</p>${puede('admin') ? `<a class="btn btn-negro" href="#/admin" data-tab="1">${ICO.gear}Cargar empresas</a>` : ''}</div>` : ''}
     ${n('dudoso') ? `<a class="panel panel-pad aviso-pagos" href="#/asientos" data-grupo="dudoso" style="border-color:var(--warn);box-shadow:0 0 0 3px var(--warn-bg)">${ICO.alert}<span><b>${n('dudoso')} asiento${n('dudoso') > 1 ? 's' : ''} dudoso${n('dudoso') > 1 ? 's' : ''}.</b> Salió el pedido hacia Shares y no llegó la respuesta. Hay que fijarse en el ERP si quedó registrado; mientras tanto, la cola no manda nada más.</span>${ICO.arrow}</a>` : ''}
@@ -1574,4 +1581,65 @@ async function vistaMiCuenta(el) {
     b.remove();
     $('#b-conf').onclick = () => conBoton($('#b-conf'), async () => { await api('/api/yo/totp/confirmar', { method: 'POST', body: { code: $('#code').value } }); S.user.totp_activo = true; toast('Doble factor activado'); vistaMiCuenta(el); });
   });
+}
+
+// ---------------------------------------------------------------------------
+//  Guía de uso + bienvenida la primera vez (como en facturas)
+// ---------------------------------------------------------------------------
+const PASOS_GUIA = [
+  ['upload', 'Subís el Excel', 'El mismo Excel de movimientos bancarios, con todas sus hojas. La app arma un asiento por cada bloque (Fecha, renglones, Totales y observación) y deja afuera los modelos vacíos y los marcados “ok - pasado”, que ya se cargaron a mano.'],
+  ['shield', 'Controles', 'Antes de guardar, cada asiento se controla: que balancee al centavo, que las cuentas existan y reciban asientos, que la fecha esté dentro del ejercicio y que no esté repetido.'],
+  ['inbox', 'Corregís lo observado', 'Los que tienen errores quedan “Con errores”, con el motivo. Se corrigen en la app (cuentas, importes, fecha, observación) o en el Excel, y se vuelven a controlar.'],
+  ['send', 'Aprobás y se envía', 'Un aprobador elige los asientos en “Enviar a Shares”. Se mandan de a uno, en orden de fecha, en segundo plano: podés cerrar la pestaña.'],
+  ['check', 'Shares devuelve el número', 'Cada asiento cargado queda con su número de Shares. Desde “Archivos subidos” se descarga el Excel con el resultado de cada uno.'],
+];
+const GUIA_ESTADOS = [
+  ['pendiente', 'Pasó todos los controles y se puede enviar.'],
+  ['observado', 'Tiene algún error (no balancea, cuenta que no existe, fecha fuera del ejercicio…). Se corrige y se vuelve a controlar.'],
+  ['en_cola', 'Aprobado: espera su turno para salir hacia Shares.'],
+  ['enviando', 'Saliendo hacia Shares en este momento.'],
+  ['cargado', 'Registrado en Shares, con su número de asiento.'],
+  ['error', 'Shares lo rechazó con un motivo (por ejemplo, período cerrado). No quedó registrado: se corrige y se reenvía.'],
+  ['dudoso', 'Salió hacia Shares y no llegó la respuesta. Puede haber quedado registrado: hay que buscarlo en el ERP y marcar si está o no. Mientras haya uno, la cola no envía nada más.'],
+  ['descartado', 'No se va a enviar. Queda en el historial y se puede reabrir.'],
+];
+async function vistaGuia(el) {
+  el.innerHTML = `<div class="encabezado"><div><h1>Guía de uso</h1><p>Cómo funciona la carga de asientos, qué significa cada estado y qué hacer si algo sale mal.</p></div>
+    <div class="acciones"><button class="btn" id="b-bienv">${ICO.sparkle}Ver la bienvenida otra vez</button></div></div>
+    <div class="panel"><div class="panel-titulo"><h2>El recorrido de un asiento</h2></div>
+      <ol class="pasos-guia">${PASOS_GUIA.map(([ic, t, d], i) => `<li><span class="num-paso">${ICO[ic]}<b>${i + 1}</b></span><div><div class="t">${esc(t)}</div><p>${esc(d)}</p></div></li>`).join('')}</ol></div>
+    <div class="dos" style="margin-top:16px">
+      <div class="panel"><div class="panel-titulo"><h2>El Excel</h2></div><div class="panel-pad guia-txt">
+        <p><b>Formato:</b> un bloque por asiento. Fila “Fecha:” con la fecha al lado, títulos, renglones (A cuenta, B detalle, C debe, D haber), “Totales” y abajo la observación. Los títulos sueltos (BANCO GALICIA, PAGO GASTOS…) se usan para mostrar de dónde sale cada asiento. Si tenés dudas, en “Importar Excel” podés descargar un modelo.</p>
+        <p><b>Cuenta:</b> el legajo de Shares (7 Banco Galicia, 9 Banco Francés…), no el código del plan (1.1.1.02.002).</p>
+        <p><b>Marca “ok - pasado”</b> en la columna E: el asiento ya se cargó a mano y no se importa. Para que la app lo envíe, no tiene que tener la marca.</p>
+        <p><b>Bloques en cero o sin fecha:</b> se ignoran (son los modelos para el mes siguiente). Los renglones en cero dentro de un asiento con importes se sacan.</p>
+        <p><b>Observaciones:</b> Shares guarda hasta 70 caracteres. Si son más largas, la app avisa.</p></div></div>
+      <div class="panel"><div class="panel-titulo"><h2>Si algo sale mal</h2></div><div class="panel-pad guia-txt">
+        <p><b>Rechazado por Shares:</b> entrá al asiento y vas a ver el mensaje de Shares. No quedó registrado: corregilo y volvé a enviarlo. Si el rechazo es por el año del ejercicio, la app lo corrige sola y lo reenvía.</p>
+        <p><b>Dudoso:</b> buscalo en Shares (empresa, fecha, importe y observación figuran en el asiento). Si está, marcá “Sí, está” y anotá el número; si no, “No está” y vuelve a “Para enviar”. Nunca lo marques “No está” sin buscarlo: Shares no controla duplicados.</p>
+        <p><b>Repetido:</b> si un asiento es igual a otro (misma fecha, cuentas, importes y observación), queda frenado. Si de verdad va dos veces, un aprobador acepta el duplicado con un comentario.</p>
+        <p><b>Error en el Excel:</b> si el asiento todavía no se envió, corregilo en la app o descartalo y volvé a subir el Excel corregido.</p>
+        <h3 style="margin:18px 0 8px">Atajos</h3>
+        <dl class="kv atajos"><dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Buscar desde cualquier pantalla: asiento, observación, cuenta o N° de Shares.</dd><dt><kbd>Esc</kbd></dt><dd>Cerrar una ventana.</dd></dl></div></div>
+    </div>
+    <div class="panel"><div class="panel-titulo"><h2>Qué significa cada estado</h2></div><div class="panel-pad">
+      <dl class="kv">${GUIA_ESTADOS.map(([e, d]) => `<dt style="font-family:var(--sans)">${badgeEstado(e)}</dt><dd style="font-family:var(--sans)">${esc(d)}</dd>`).join('')}</dl>
+      <p class="small muted" style="margin:14px 0 0">Roles: <b>carga</b> importa, corrige y descarta · <b>aprobador</b> además envía a Shares, resuelve dudosos y acepta duplicados · <b>admin</b> todo, incluida la configuración.</p></div></div>`;
+  $('#b-bienv').onclick = () => bienvenida(true);
+}
+function bienvenida(forzar = false) {
+  try { if (!forzar && localStorage.getItem('asientos_bienvenida')) return; localStorage.setItem('asientos_bienvenida', '1'); } catch { if (!forzar) return; }
+  let i = 0;
+  const pintar = (el, cerrar) => {
+    const [ic, t, d] = PASOS_GUIA[i];
+    el.innerHTML = `<div class="bienv"><span class="bienv-ico">${ICO[ic]}</span><span class="et">Paso ${i + 1} de ${PASOS_GUIA.length}</span><h2>${esc(t)}</h2><p class="muted">${esc(d)}</p>
+      <div class="puntos">${PASOS_GUIA.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="acciones" style="justify-content:space-between;width:100%"><button class="btn btn-ghost" id="bv-salt">${i === PASOS_GUIA.length - 1 ? '' : 'Saltar'}</button>
+        <span class="acciones">${i ? `<button class="btn" id="bv-ant">${ICO.back}Atrás</button>` : ''}<button class="btn btn-acento" id="bv-sig">${i === PASOS_GUIA.length - 1 ? 'Empezar' : 'Siguiente'} ${ICO.arrow}</button></span></div></div>`;
+    $('#bv-sig', el).onclick = () => { if (i === PASOS_GUIA.length - 1) return cerrar(); i++; pintar(el, cerrar); };
+    const a = $('#bv-ant', el); if (a) a.onclick = () => { i--; pintar(el, cerrar); };
+    $('#bv-salt', el).onclick = cerrar;
+  };
+  modal('<div></div>', { alMontar: (el, cerrar) => pintar(el, cerrar) });
 }
