@@ -851,11 +851,11 @@ async function montarPanelCola(el, alTerminar) {
     const rec = c.recientes || [];
     const ok = rec.filter(x => x.estado === 'cargado').length, mal = rec.filter(x => x.estado !== 'cargado');
     if (!activas && !rec.length && !c.dudosos) { caja.innerHTML = ''; return activas; }
-    const frenada = c.dudosos ? `<b>Cola frenada:</b> hay ${c.dudosos} asiento${c.dudosos > 1 ? 's' : ''} dudoso${c.dudosos > 1 ? 's' : ''}. No se manda nada más hasta verificar en Shares si quedaron registrados. <a href="#/asientos" data-ir-dudosos>Resolver</a>` : '';
+    const dudTxt = c.dudosos ? ` · <b>${c.dudosos} dudoso${c.dudosos > 1 ? 's' : ''} para verificar en Shares</b> (<a href="#/asientos" data-ir-dudosos>ver</a>)` : '';
     caja.innerHTML = `<div class="panel panel-pad cola ${activas ? 'activa' : ''}">
-      <div class="cola-top">${activas && !c.dudosos ? '<span class="cargando"></span>' : (c.dudosos ? ICO.alert : ICO.check)}
-        <div><b>${c.dudosos ? 'Envío en pausa por seguridad' : activas ? `Enviando a Shares en segundo plano: ${activas} en cola` : 'Cola vacía: no hay asientos pendientes de envío'}</b>
-        <div class="small muted">${frenada || (c.pausa_hasta ? `${esc(c.pausa_motivo || 'Shares limitó las solicitudes')}: el envío se reanuda solo a las ${esc(c.pausa_hasta)}. No se pierde nada.` : activas ? 'Se envían de a uno, en orden de fecha. Podés seguir trabajando o cerrar la pestaña.' : 'Últimas 6 horas')}${rec.length ? ` · ${ok} cargados${mal.length ? ` · <b>${mal.length} con problemas</b>` : ''}` : ''}</div></div></div>
+      <div class="cola-top">${activas && !c.pausa_hasta ? '<span class="cargando"></span>' : (c.pausa_hasta || c.dudosos ? ICO.alert : ICO.check)}
+        <div><b>${c.pausa_hasta && activas ? `Envío en pausa: ${activas} en cola` : activas ? `Enviando a Shares en segundo plano: ${activas} en cola` : 'Cola vacía: no hay asientos pendientes de envío'}</b>
+        <div class="small muted">${(c.pausa_hasta ? `${esc(c.pausa_motivo || 'Shares limitó las solicitudes')}: el envío se reanuda solo a las ${esc(c.pausa_hasta)}. No se pierde nada.` : activas ? 'Se envían de a uno, en orden de fecha. Podés seguir trabajando o cerrar la pestaña.' : 'Últimas 6 horas')}${dudTxt}${rec.length ? ` · ${ok} cargados${mal.length ? ` · <b>${mal.length} con problemas</b>` : ''}` : ''}</div></div></div>
       ${mal.length ? `<details class="cola-err"><summary>Ver los que tuvieron problemas</summary><table><tbody>${mal.slice(0, 30).map(x => `<tr><td class="mono"><a href="#/asiento/${x.id}">${esc(x.ref || '#' + x.id)}</a></td><td>${badgeEstado(x.estado)}</td><td class="small">${esc(x.message || '')}</td></tr>`).join('')}</tbody></table></details>` : ''}
     </div>`;
     const d = $('[data-ir-dudosos]', caja); if (d) d.onclick = () => sessionStorage.setItem('asientos_grupo', 'dudoso');
@@ -869,7 +869,7 @@ async function montarPanelCola(el, alTerminar) {
       const activas = pintar(c);
       if (antes !== null && activas < antes && alTerminar) { alTerminar(); return; }
       antes = activas;
-      if (!activas || c.dudosos) return;
+      if (!activas) return;
     }
     setTimeout(tick, 15000);
   };
@@ -892,7 +892,7 @@ async function vistaInicio(el) {
   el.innerHTML = `<div class="encabezado"><div><h1>${saludo}${primerNombre ? ', ' + esc(primerNombre) : ''}</h1><p>${esc(hoyTxt.charAt(0).toUpperCase() + hoyTxt.slice(1))} · cada asiento se envía una sola vez y queda con el número que asigna Shares</p></div>
       <div class="acciones"><a class="btn btn-acento" href="#/importar">${ICO.upload}Importar Excel</a></div></div>
     ${!t.empresas ? `<div class="panel panel-pad" style="margin-bottom:16px"><h2 style="margin-bottom:6px">Falta configurar las empresas</h2><p class="muted" style="margin:0 0 12px">Para cargar asientos, cada sociedad necesita su CUIT y el año del ejercicio tal como está en Shares.${puede('admin') ? '' : ' Pedíselo a un administrador.'}</p>${puede('admin') ? `<a class="btn btn-negro" href="#/admin" data-tab="1">${ICO.gear}Cargar empresas</a>` : ''}</div>` : ''}
-    ${n('dudoso') ? `<a class="panel panel-pad aviso-pagos" href="#/asientos" data-grupo="dudoso" style="border-color:var(--warn);box-shadow:0 0 0 3px var(--warn-bg)">${ICO.alert}<span><b>${n('dudoso')} asiento${n('dudoso') > 1 ? 's' : ''} dudoso${n('dudoso') > 1 ? 's' : ''}.</b> Salió el pedido hacia Shares y no llegó la respuesta. Hay que fijarse en el ERP si quedó registrado; mientras tanto, la cola no manda nada más.</span>${ICO.arrow}</a>` : ''}
+    ${n('dudoso') ? `<a class="panel panel-pad aviso-pagos" href="#/asientos" data-grupo="dudoso" style="border-color:var(--warn);box-shadow:0 0 0 3px var(--warn-bg)">${ICO.alert}<span><b>${n('dudoso')} asiento${n('dudoso') > 1 ? 's' : ''} dudoso${n('dudoso') > 1 ? 's' : ''}.</b> Salió el pedido hacia Shares y no llegó la respuesta. Hay que fijarse en el ERP si quedó registrado. El resto de los asientos se sigue enviando.</span>${ICO.arrow}</a>` : ''}
     <div class="kpis">
       ${kpi('Para enviar', enviar, enviar ? $$m((pe.pendiente?.monto || 0) + (pe.error?.monto || 0)) : 'Nada pendiente', { href: '#/enviar' })}
       ${kpi('Con errores', errores, errores ? 'Corregilos antes de enviar' : 'Sin errores', { href: '#/asientos', clase: errores ? 'alerta' : '' })}
@@ -1162,10 +1162,11 @@ function pintarAsiento(el, d) {
       <h1 style="margin-top:6px">Asiento ${esc(a.ref)} ${badgeEstado(a.estado)}</h1>
       <p>${esc(a.empresa || fmtCuit(a.cuit_empresa))} · ejercicio ${esc(a.emp_periodo || '—')} · #${a.id}${a.origen ? ` · ${esc(a.origen)}` : ''}${a.fila ? ` · fila ${a.fila} del Excel` : ''}${d.lote ? ` · <a href="#/lote/${d.lote.id}">${esc(d.lote.archivo_nombre || 'archivo')}</a>` : ''}</p></div>
     <div class="acciones" id="acc"></div></div>
+    ${a.estado === 'en_cola' ? `<div id="aviso-cola"></div>` : ''}
     ${dud ? `<div class="panel panel-pad" style="margin-bottom:16px;border-color:var(--warn);box-shadow:0 0 0 3px var(--warn-bg)">
       <h2 style="margin-bottom:6px">Verificá en Shares si este asiento quedó registrado</h2>
       <p class="muted" style="margin:0 0 6px">${esc(a.mensaje || 'No se sabe si Shares lo registró.')}</p>
-      <p style="margin:0 0 12px">Buscá en <b>${esc(a.empresa || a.cuit_empresa)}</b> un asiento del <b>${fmtF(a.fecha)}</b> por <b>${$$m(a.total)}</b>${a.observaciones ? ` con la observación “${esc(String(a.observaciones).slice(0, OBS_MAX))}”` : ''}. Mientras esté sin resolver, la cola no manda nada más.</p>
+      <p style="margin:0 0 12px">Buscá en <b>${esc(a.empresa || a.cuit_empresa)}</b> un asiento del <b>${fmtF(a.fecha)}</b> por <b>${$$m(a.total)}</b>${a.observaciones ? ` con la observación “${esc(String(a.observaciones).slice(0, OBS_MAX))}”` : ''}. Mientras esté sin resolver, este asiento no se vuelve a enviar; el resto sigue normalmente.</p>
       ${puede('aprobador') ? `<div class="acciones"><button class="btn btn-acento" id="b-esta">${ICO.check}Sí, está en Shares</button><button class="btn" id="b-noesta">No está: volver a enviar más tarde</button></div>` : '<p class="small muted">Lo resuelve un usuario aprobador.</p>'}
     </div>` : ''}
     <div class="detalle">
@@ -1204,16 +1205,30 @@ function pintarAsiento(el, d) {
       </div>
     </div>`;
 
+  if (a.estado === 'en_cola') api('/api/cola').then(c => {
+    const box = $('#aviso-cola'); if (!box) return;
+    if (!c.envio_habilitado) box.innerHTML = `<div class="panel panel-pad aviso-pagos">${ICO.info}<span><b>El envío a Shares está apagado:</b> sale cuando se active en Configuración.</span></div>`;
+    else if (c.pausa_hasta) box.innerHTML = `<div class="panel panel-pad aviso-pagos">${ICO.clock}<span>${esc(c.pausa_motivo || 'Shares en pausa')}: se retoma a las ${esc(c.pausa_hasta)}.</span></div>`;
+    const v = $('[data-dud]', box); if (v) v.onclick = () => sessionStorage.setItem('asientos_grupo', 'dudoso');
+  }).catch(() => null);
+
   // Acciones del encabezado
   const acc = $('#acc');
   const botones = [];
   if (['pendiente', 'observado', 'error'].includes(a.estado) && puede('carga')) botones.push(`<button class="btn btn-rojo" id="b-desc">${ICO.x}Descartar</button>`);
   if (a.estado === 'descartado' && puede('aprobador')) botones.push(`<button class="btn" id="b-reab">${ICO.refresh}Reabrir</button>`);
   if (['pendiente', 'error'].includes(a.estado)) botones.push(`<a class="btn btn-acento" href="#/enviar">${ICO.send}Ir a enviar</a>`);
+  if (a.estado === 'en_cola' && puede('aprobador')) botones.push(`<button class="btn" id="b-quitar">${ICO.x}Sacar de la cola</button>`);
   acc.innerHTML = botones.join('');
   const recargar = (x) => { S.cnt = null; pintarAsiento(el, x); };
   const post = (accion, body) => api(`/api/asientos/${a.id}/${accion}`, { method: 'POST', body });
   $('#b-desc')?.addEventListener('click', async () => { const m = await pedirTexto({ titulo: 'Descartar asiento', ayuda: 'No se va a enviar a Shares. Queda en el historial y se puede reabrir.', etiqueta: 'Motivo', boton: 'Descartar' }); if (m) conBoton($('#b-desc'), async () => recargar(await post('descartar', { motivo: m }))); });
+  $('#b-quitar')?.addEventListener('click', () => conBoton($('#b-quitar'), async () => {
+    const x = await api('/api/cola/quitar', { method: 'POST', body: { ids: [a.id] } });
+    if (!x.quitados) { toast('Ya salió hacia Shares: no se puede sacar.', true); }
+    else toast('Sacado de la cola: volvió a “Para enviar”');
+    recargar(await api('/api/asientos/' + a.id));
+  }));
   $('#b-reab')?.addEventListener('click', () => conBoton($('#b-reab'), async () => recargar(await post('reabrir', {}))));
   $('#b-recontrolar')?.addEventListener('click', () => conBoton($('#b-recontrolar'), async () => { recargar(await post('recontrolar', {})); toast('Controlado de nuevo'); }));
   $('#b-dup')?.addEventListener('click', async () => { const m = await pedirTexto({ titulo: 'Aceptar el duplicado', ayuda: `Este asiento es igual al #${d.duplicado.id}. Si de verdad va dos veces (por ejemplo, dos transferencias iguales el mismo día), explicá por qué.`, etiqueta: 'Por qué va dos veces', boton: 'Aceptar' }); if (m) conBoton($('#b-dup'), async () => recargar(await post('aceptar-duplicado', { comentario: m }))); });
@@ -1600,7 +1615,7 @@ const GUIA_ESTADOS = [
   ['enviando', 'Saliendo hacia Shares en este momento.'],
   ['cargado', 'Registrado en Shares, con su número de asiento.'],
   ['error', 'Shares lo rechazó con un motivo (por ejemplo, período cerrado). No quedó registrado: se corrige y se reenvía.'],
-  ['dudoso', 'Salió hacia Shares y no llegó la respuesta. Puede haber quedado registrado: hay que buscarlo en el ERP y marcar si está o no. Mientras haya uno, la cola no envía nada más.'],
+  ['dudoso', 'Salió hacia Shares y no llegó la respuesta. Puede haber quedado registrado: hay que buscarlo en el ERP y marcar si está o no. Ese asiento no se reenvía solo; los demás siguen saliendo.'],
   ['descartado', 'No se va a enviar. Queda en el historial y se puede reabrir.'],
 ];
 async function vistaGuia(el) {
