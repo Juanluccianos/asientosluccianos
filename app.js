@@ -1357,8 +1357,8 @@ async function adminCuentas(el) {
   el.innerHTML = `<div class="filtros" style="padding:0 0 14px;border:0">
       <div class="campo"><label for="pe">Empresa</label><select id="pe">${emps.map(e => `<option value="${e.cuit}" ${e.cuit === cuit ? 'selected' : ''}>${esc(e.razon_social)}</option>`).join('')}</select></div>
       <div class="campo ancho"><label for="pq">Filtrar</label><input id="pq" placeholder="Código o denominación"></div>
-      <div class="campo"><button class="btn btn-negro" id="b-imp">${ICO.upload}Importar Excel</button></div></div>
-    <p class="small muted">El código es el de Shares para asientos (el legajo de la cuenta, hasta 3 dígitos). Las cuentas destildadas no reciben asientos (títulos, cuentas madre).</p>
+      <div class="campo"><div class="acciones"><button class="btn btn-negro" id="b-shares">${ICO.refresh}Traer de Shares</button><button class="btn" id="b-imp">${ICO.upload}Importar Excel</button></div></div></div>
+    <p class="small muted">El código es el de Shares para asientos (el legajo de la cuenta, hasta 3 dígitos). “Traer de Shares” usa el mismo catálogo que la app de facturas. Las cuentas destildadas no reciben asientos (títulos, cuentas madre).</p>
     <div id="pl"></div>`;
   const cargar = async () => {
     const r = await api('/api/cuentas?empresa=' + cuit);
@@ -1370,6 +1370,30 @@ async function adminCuentas(el) {
   };
   $('#pe', el).onchange = (e) => { cuit = e.target.value; sessionStorage.setItem('plan_emp', cuit); cargar(); };
   $('#pq', el).oninput = (e) => { const q = e.target.value.toLowerCase(); $$('#tbc tr', el).forEach(tr => tr.classList.toggle('hidden', !!q && !tr.dataset.txt.includes(q))); };
+  const traer = async (campo = null) => {
+    const r = await api('/api/cuentas/traer-shares', { method: 'POST', body: { cuit_empresa: cuit, campo } });
+    if (r.ok) {
+      toast(`✓ ${r.cantidad} cuentas traídas de Shares`);
+      await cargar();
+      if (await confirmar('¿Volver a controlar los asientos que todavía no se enviaron con el plan nuevo?', { boton: 'Sí, controlar' })) await recontrolarTodos();
+      return;
+    }
+    const motivo = { sin_legajo: 'Shares devolvió el catálogo, pero no encontré un campo con el <b>legajo</b> de la cuenta (el número de hasta 3 dígitos que piden los asientos: 7, 6, 498…).',
+      legajo_largo: `El campo <b>${esc(r.campo)}</b> trae códigos de más de 3 dígitos: es el código de concepto que usa facturas (ej. 113014), no el legajo que piden los asientos.`,
+      legajo_vacio: `El campo <b>${esc(r.campo)}</b> viene vacío.` }[r.motivo] || 'No se pudo armar el plan.';
+    modal(`<h2>No pude armar el plan desde Shares</h2><p>${motivo}</p>
+      <p class="small muted">Shares devolvió ${r.total} cuentas con estos campos. Si alguno es el legajo, elegilo y lo intento de nuevo. Si no, mandale esta pantalla a Juan/Claudio o pedile a Shares el plan con legajo en Excel.</p>
+      <div class="campo"><label>Campo con el legajo</label><select id="tc-campo">${r.claves.map(k => `<option>${esc(k)}</option>`).join('')}</select></div>
+      <details><summary class="small">Cómo vienen las primeras cuentas</summary><pre class="mono small" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(r.ejemplos, null, 2))}</pre></details>
+      <div class="acciones" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-cerrar>Cerrar</button><button class="btn btn-negro" id="tc-ok">Usar ese campo</button></div>`, {
+      ancho: true,
+      alMontar: (m, cerrar) => {
+        $('[data-cerrar]', m).onclick = cerrar;
+        $('#tc-ok', m).onclick = () => conBoton($('#tc-ok', m), async () => { const c = $('#tc-campo', m).value; cerrar(); await traer(c); });
+      },
+    });
+  };
+  $('#b-shares', el).onclick = () => conBoton($('#b-shares', el), () => traer());
   $('#b-imp', el).onclick = () => modal(`<h2>Importar plan de cuentas</h2><p class="muted" style="margin-top:-6px">${esc(nombreEmpresa(cuit))}. El Excel necesita las columnas <b>Código</b> (o Cuenta / Legajo) y <b>Denominación</b> (o Descripción). Opcional: <b>Imputable</b> / <b>Recibe asientos</b> con Sí o No.</p>
       <label class="drop" id="pdrop">${ICO.upload}<span>Elegí el Excel</span><input type="file" id="pf" accept=".xlsx,.xls,.csv" hidden></label>
       <label class="check"><input type="checkbox" id="prep"> Reemplazar el plan actual (si no, se agregan y actualizan)</label><div id="pres"></div>`, {
