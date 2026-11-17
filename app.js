@@ -1420,7 +1420,7 @@ async function adminCuentas(el) {
     });
   };
   $('#b-shares', el).onclick = () => conBoton($('#b-shares', el), () => traer());
-  $('#b-imp', el).onclick = () => modal(`<h2>Importar plan de cuentas</h2><p class="muted" style="margin-top:-6px">${esc(nombreEmpresa(cuit))}. El Excel necesita las columnas <b>Código</b> (o Cuenta / Legajo) y <b>Denominación</b> (o Descripción). Opcional: <b>Imputable</b> / <b>Recibe asientos</b> con Sí o No.</p>
+  $('#b-imp', el).onclick = () => modal(`<h2>Importar plan de cuentas</h2><p class="muted" style="margin-top:-6px">${esc(nombreEmpresa(cuit))}. Subí el <b>Plan de Cuentas exportado de Shares</b> (PlanCta, .xls) tal cual sale: toma el legajo (LEG) y si recibe asientos (RA). También sirve un Excel propio con columnas <b>Legajo</b> y <b>Denominación</b>.</p>
       <label class="drop" id="pdrop">${ICO.upload}<span>Elegí el Excel</span><input type="file" id="pf" accept=".xlsx,.xls,.csv" hidden></label>
       <label class="check"><input type="checkbox" id="prep"> Reemplazar el plan actual (si no, se agregan y actualizan)</label><div id="pres"></div>`, {
     alMontar: (m, cerrar) => {
@@ -1428,9 +1428,24 @@ async function adminCuentas(el) {
         const f = $('#pf', m).files[0]; if (!f) return;
         try {
           const { filas } = await leerFilas(f);
+          const reemplazar = $('#prep', m).checked;   // se lee antes: los avisos de confirmación usan la misma ventana
+          const rep = parsearPlanShares(filas);
+          if (rep) {
+            const emp = (S.empresas || []).find(e => e.cuit === cuit) || {};
+            const nImp = rep.cuentas.filter(c => c.imputable).length;
+            if (!await confirmar(`Plan de cuentas de Shares${rep.empresa ? ` de ${rep.empresa}` : ''}${rep.anio ? ` (ejercicio ${rep.anio})` : ''}:\n${rep.cuentas.length} cuentas, ${nImp} reciben asientos.\n\n¿Cargarlo en ${emp.razon_social || 'esta empresa'}?`, { boton: 'Cargar plan' })) return;
+            const x = await api('/api/cuentas/importar', { method: 'POST', body: { cuit_empresa: cuit, filas: rep.cuentas, reemplazar } });
+            toast(`✓ ${x.cantidad} cuentas importadas`); await cargar();
+            if (rep.anio && Number(emp.periodo_contable) !== rep.anio && await confirmar(`El plan es del ejercicio ${rep.anio} y la empresa tiene cargado ${emp.periodo_contable || 'otro año'}. ¿Actualizar el año del ejercicio a ${rep.anio}?`, { boton: `Sí, ${rep.anio}` })) {
+              await api('/api/empresas', { method: 'POST', body: { cuit, razon_social: emp.razon_social, periodo_contable: rep.anio, pdesde: emp.pdesde && String(emp.pdesde).startsWith(String(rep.anio)) ? emp.pdesde : '', phasta: emp.phasta && String(emp.phasta).startsWith(String(rep.anio)) ? emp.phasta : '', activa: emp.activa !== 0 } });
+              S.empresas = null; toast(`Año del ejercicio: ${rep.anio}`);
+            }
+            if (await confirmar('¿Volver a controlar los asientos que todavía no se enviaron con el plan nuevo?', { boton: 'Sí, controlar' })) await recontrolarTodos();
+            return;
+          }
           let h = -1, cC, cD, cI;
           for (let i = 0; i < Math.min(filas.length, 30) && h < 0; i++) {
-            filas[i].forEach((c, j) => { const t = sinAcentos(c); if (cC === undefined && /^(codigo|cod\.?|cuenta|legajo|n[°ºo]?\s*cuenta)$/.test(t)) cC = j; else if (cD === undefined && /(denominaci|descripci|nombre)/.test(t)) cD = j; else if (cI === undefined && /(imputable|recibe)/.test(t)) cI = j; });
+            filas[i].forEach((c, j) => { const t = sinAcentos(c); if (/^(legajo|leg\.?)$/.test(t)) cC = j; else if (cC === undefined && /^(codigo|cod\.?|cuenta|n[°ºo]?\s*cuenta)$/.test(t)) cC = j; else if (cD === undefined && /(denominaci|descripci|nombre)/.test(t)) cD = j; else if (cI === undefined && /(imputable|recibe)/.test(t)) cI = j; });
             if (cC !== undefined && cD !== undefined) h = i; else { cC = cD = cI = undefined; }
           }
           if (h < 0) throw new Error('No encontré las columnas Código y Denominación.');
@@ -1438,11 +1453,29 @@ async function adminCuentas(el) {
           const x = await api('/api/cuentas/importar', { method: 'POST', body: { cuit_empresa: cuit, filas: rows, reemplazar: $('#prep', m).checked } });
           cerrar(); toast(`✓ ${x.cantidad} cuentas importadas`); await cargar();
           if (await confirmar('¿Volver a controlar los asientos que todavía no se enviaron con el plan nuevo?', { boton: 'Sí, controlar' })) await recontrolarTodos();
-        } catch (e) { $('#pres', m).innerHTML = `<p class="txt-neg">${esc(e.message)}</p>`; }
+        } catch (e) { const r = $('#pres', m); if (r) r.innerHTML = `<p class="txt-neg">${esc(e.message)}</p>`; else toast(e.message, true); }
       };
     },
   });
   await cargar();
+}
+
+// Reporte "Plan de Cuentas" exportado de Shares (PlanCta.rpt): todo el texto en la columna A, con ancho fijo:
+//   LEG  CODIGO                 DENOMINACION              SUMA EN        TC  RA  MO  CI
+//   007  ----1.1.1.02.002       BANCO GALICIA CTA. CTE.   1.1.1.02.000   A   SI  SI  5
+// LEG es el legajo (lo que piden los asientos) y RA indica si la cuenta recibe asientos.
+const RX_PLAN_SHARES = /^\s*(\d{1,3})\s+-*([\d.]+)\s+(.+?)\s{2,}(?:[\d.]+\s+)?[A-Z]{1,2}\s+(SI|NO)\s+(SI|NO)\s+\d+\s*$/;
+function parsearPlanShares(filas) {
+  const lineas = filas.map(f => String(f[0] ?? ''));
+  const cuentas = [];
+  for (const l of lineas) {
+    const m = l.match(RX_PLAN_SHARES);
+    if (m) cuentas.push({ codigo: m[1], denominacion: m[3].trim(), imputable: m[4] === 'SI', codigo_plan: m[2] });
+  }
+  if (cuentas.length < 5) return null;
+  const cab = lineas.find(l => /\s-\s\d{4}\b/.test(l) && !RX_PLAN_SHARES.test(l)) || '';
+  const m = cab.match(/^\s*(.+?)\s+-\s+(\d{4})\b/);
+  return { cuentas, empresa: m ? m[1].trim() : null, anio: m ? Number(m[2]) : null };
 }
 
 async function recontrolarTodos() {
