@@ -855,3 +855,7 @@ input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
 #ren input.num { min-width: 120px; }
 tfoot td { border-top: 1px solid var(--line-strong); background: var(--surface-2); padding: 10px 14px; }
 .hist li.con-ico { display: flex; }
+/* Tablas largas con su propio desplazamiento (plan de cuentas, auditoría). En escritorio .tabla-wrap deja el
+   desbordamiento "visible", y con un alto máximo eso hacía que la tabla se saliera del recuadro. */
+.tabla-wrap.tabla-scroll { overflow: auto; max-height: 60vh; border: 1px solid var(--line); border-radius: var(--r-md, 10px); }
+.tabla-scroll thead th { position: sticky; top: 0; z-index: 1; }

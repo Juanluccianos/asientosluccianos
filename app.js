@@ -1388,7 +1388,7 @@ async function adminCuentas(el) {
     <div id="pl"></div>`;
   const cargar = async () => {
     const r = await api('/api/cuentas?empresa=' + cuit);
-    $('#pl', el).innerHTML = r.cuentas.length ? `<div class="tabla-wrap" style="max-height:60vh"><table><thead><tr><th>Recibe asientos</th><th>Código</th><th>Denominación</th></tr></thead><tbody id="tbc">
+    $('#pl', el).innerHTML = r.cuentas.length ? `<div class="tabla-wrap tabla-scroll"><table><thead><tr><th>Recibe asientos</th><th>Código</th><th>Denominación</th></tr></thead><tbody id="tbc">
       ${r.cuentas.map(c => `<tr data-txt="${esc((c.codigo + ' ' + c.denominacion).toLowerCase())}"><td><input type="checkbox" data-cta="${c.codigo}" ${c.imputable ? 'checked' : ''}></td><td class="mono">${c.codigo}</td><td>${esc(c.denominacion)}</td></tr>`).join('')}</tbody></table></div><p class="small muted">${r.cuentas.length} cuentas.</p>`
       : '<div class="vacio">Esta empresa no tiene plan de cuentas cargado.</div>';
     $$('[data-cta]', el).forEach(c => c.onchange = () => api(`/api/cuentas/${cuit}/${c.dataset.cta}`, { method: 'PUT', body: { imputable: c.checked } }).then(() => toast('Guardado')).catch(e => toast(e.message, true)));
@@ -1541,7 +1541,7 @@ async function adminConfig(el) {
 
 async function adminAuditoria(el) {
   const r = await api('/api/auditoria');
-  el.innerHTML = `<div class="tabla-wrap" style="max-height:65vh"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Qué</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>
+  el.innerHTML = `<div class="tabla-wrap tabla-scroll"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Qué</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>
     ${r.auditoria.map(a => `<tr><td class="mono small">${fmtFH(a.ts)}</td><td class="small">${esc(a.usuario || '')}</td><td class="small">${a.entidad === 'asiento' ? `<a href="#/asiento/${esc(a.entidad_id)}">asiento #${esc(a.entidad_id)}</a>` : a.entidad === 'lote' ? `<a href="#/lote/${esc(a.entidad_id)}">archivo #${esc(a.entidad_id)}</a>` : esc(`${a.entidad} ${a.entidad_id}`)}</td>
       <td class="small">${esc(ACCIONES_AUD[a.accion] || a.accion)}</td><td class="small muted" style="max-width:420px;overflow-wrap:anywhere">${esc(String(a.valor_nuevo || '').slice(0, 200))}</td></tr>`).join('')}
   </tbody></table></div>`;
