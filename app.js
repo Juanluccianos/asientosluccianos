@@ -19,6 +19,14 @@ const API = (() => {
   } catch { return String(window.ASIENTOS_API).replace(/\/$/, ''); }
 })();
 
+// Login único: la sesión viene del portal de Herramientas (Worker acceso-api)
+const PORTAL = 'https://herramientas.luccianos.com.ar';
+const ACCESO_API = 'https://acceso-api.lucciano-viaticos.workers.dev';
+const ACCESO_APP = 'asientos';
+// Transición: mientras sea true se puede seguir entrando con la clave vieja de Asientos. Al terminar, pasarlo a false.
+const LOGIN_VIEJO = true;
+const esTokenViejo = (t) => /^[a-f0-9]{64}$/i.test(t || '');
+
 const S = { token: null, user: null, cfg: { envio_habilitado: false, tope_por_envio: 1 }, empresas: null, vista: null };
 try { S.token = localStorage.getItem('asientos_token'); } catch { /* sin storage */ }
 
@@ -397,10 +405,33 @@ Object.assign(ICO, {
 // ---------------------------------------------------------------------------
 function guardarToken(t) { S.token = t; try { t ? localStorage.setItem('asientos_token', t) : localStorage.removeItem('asientos_token'); } catch { } }
 async function salir(llamarApi = true) {
-  if (llamarApi) await api('/api/logout', { method: 'POST' }).catch(() => null);
+  const central = S.token && !esTokenViejo(S.token);
+  if (llamarApi) {
+    if (central) await fetch(ACCESO_API + '/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token } }).catch(() => null);
+    else await api('/api/logout', { method: 'POST' }).catch(() => null);
+  }
   guardarToken(null); S.user = null; S.empresas = null;
+  if (central && llamarApi) { location.href = PORTAL; return; }
   location.hash = '';
   vistaLogin();
+}
+
+// Llegada desde el portal: #acceso=<código de un solo uso> → se cambia por la sesión de esta app
+async function canjearAcceso() {
+  const m = location.hash.match(/^#acceso=([\w-]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search + '#/inicio');
+  try {
+    const res = await fetch(ACCESO_API + '/canjear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo: m[1], app: ACCESO_APP }),
+    });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(r.error || 'No se pudo ingresar.');
+    guardarToken(r.token);
+  } catch (e) {
+    setTimeout(() => toast(e.message.includes('fetch') ? 'No se pudo conectar para ingresar. Volvé a entrar desde el portal.' : e.message, true), 400);
+  }
 }
 
 async function empresas(forzar = false) {
@@ -659,12 +690,15 @@ async function vistaLogin() {
       <div class="pasos"><span>${ICO.upload}Subís el Excel</span><span>${ICO.shield}Se controla</span><span>${ICO.check}Lo aprobás</span><span>${ICO.send}Va a Shares</span></div></div>
     <div class="login-form"><form id="f-login">
       <h1>${setup ? 'Primer ingreso' : 'Ingresar'}</h1>
-      <p>${setup ? 'Creá el usuario administrador.' : "Usá tu mail de Lucciano's."}</p>
+      <p>${setup ? 'Creá el usuario administrador.' : "Entrá desde el portal de Herramientas, con tu usuario de Lucciano's."}</p>
+      ${setup ? '' : `<a class="btn btn-acento btn-grande" href="${PORTAL}" style="text-decoration:none;justify-content:center">Ir al portal ${ICO.arrow}</a>`}
+      ${setup ? '' : (LOGIN_VIEJO ? '<details class="login-viejo" style="margin-top:22px"><summary style="cursor:pointer;color:var(--muted,#777);font-size:13.5px">Ingresar con la clave anterior de Asientos</summary><div style="margin-top:14px">' : '<div hidden>')}
       ${setup ? '<div class="campo"><label for="lg-n">Nombre</label><input id="lg-n" name="nombre" required autocomplete="name"></div>' : ''}
       <div class="campo"><label for="lg-u">Mail</label><input id="lg-u" name="email" type="email" required autocomplete="username"></div>
       <div class="campo"><label for="lg-p">Contraseña</label><input id="lg-p" name="password" type="password" required autocomplete="${setup ? 'new-password' : 'current-password'}" minlength="${setup ? 10 : 1}"></div>
       <div class="campo hidden" id="c-totp"><label for="lg-t">Código de verificación</label><input id="lg-t" name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" class="mono"></div>
       <button class="btn btn-acento btn-grande" type="submit">${setup ? 'Crear y entrar' : 'Entrar'} ${ICO.arrow}</button>
+      ${setup ? '' : (LOGIN_VIEJO ? '</div></details>' : '</div>')}
     </form></div></div>`;
   colorBarra('#B39DDB');
   $('#f-login').onsubmit = async (e) => {
@@ -796,6 +830,7 @@ async function cargarYo() {
 }
 
 async function iniciar() {
+  await canjearAcceso();
   if (!S.token) return vistaLogin();
   try { await cargarYo(); } catch { return vistaLogin(); }
   empresas().catch(() => null);
@@ -1513,6 +1548,15 @@ async function recontrolarTodos() {
 }
 
 async function adminUsuarios(el) {
+  const aviso = `<div class="panel panel-pad" style="margin-bottom:14px"><h2 style="margin-bottom:6px">Los usuarios se administran desde el portal</h2>
+    <p class="muted" style="margin:0 0 12px">Ahí se da acceso a Asientos y se elige el rol de cada persona (carga, aprobador o admin). Vale para todas las herramientas.</p>
+    <a class="btn btn-negro" href="${PORTAL}" style="text-decoration:none">Abrir el portal</a></div>`;
+  if (!LOGIN_VIEJO) { el.innerHTML = aviso; return; }
+  await adminUsuariosViejo(el);
+  el.insertAdjacentHTML('afterbegin', aviso + '<h3 style="margin:0 0 10px">Claves anteriores de Asientos (se dejan de usar al terminar la migración)</h3>');
+}
+
+async function adminUsuariosViejo(el) {
   const r = await api('/api/usuarios');
   el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-nu">Nuevo usuario</button></div>
     <div class="tabla-wrap"><table><thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>2FA</th><th>Estado</th><th></th></tr></thead><tbody>
@@ -1573,6 +1617,15 @@ async function adminAuditoria(el) {
 //  Mi cuenta: contraseña y doble factor
 // ---------------------------------------------------------------------------
 async function vistaMiCuenta(el) {
+  if (S.user.central) {
+    el.innerHTML = `<div class="encabezado"><div><h1>Mi cuenta</h1><p>${esc(S.user.email)} · rol ${esc(S.user.rol)}</p></div></div>
+      ${bloqueInstalar()}
+      <div class="panel panel-pad" style="max-width:560px"><h2 style="margin-bottom:12px">Usuario y contraseña</h2>
+        <p class="muted">Usás el mismo usuario en todas las herramientas de Lucciano's. La contraseña y los permisos se manejan desde el portal.</p>
+        <a class="btn btn-negro" href="${PORTAL}" style="text-decoration:none">Ir al portal</a></div>`;
+    montarInstalar(el);
+    return;
+  }
   el.innerHTML = `<div class="encabezado"><div><h1>Mi cuenta</h1><p>${esc(S.user.email)} · rol ${esc(S.user.rol)}</p></div></div>
     ${bloqueInstalar()}
     <div class="panel panel-pad" style="max-width:560px"><h2 style="margin-bottom:12px">Doble factor</h2>
