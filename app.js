@@ -418,6 +418,12 @@ async function salir(llamarApi = true) {
 
 // Llegada desde el portal: #acceso=<código de un solo uso> → se cambia por la sesión de esta app
 async function canjearAcceso() {
+  // Viene del portal: si ya tiene sesión entra al instante; si no, el portal le consigue una y lo devuelve
+  if (location.hash === '#portal') {
+    history.replaceState(null, '', location.pathname + location.search + '#/inicio');
+    if (!S.token) { location.replace(PORTAL + '/#ir=' + ACCESO_APP); return 'redirigiendo'; }
+    return;
+  }
   const m = location.hash.match(/^#acceso=([\w-]+)$/);
   if (!m) return;
   history.replaceState(null, '', location.pathname + location.search + '#/inicio');
@@ -691,7 +697,7 @@ async function vistaLogin() {
     <div class="login-form"><form id="f-login">
       <h1>${setup ? 'Primer ingreso' : 'Ingresar'}</h1>
       <p>${setup ? 'Creá el usuario administrador.' : "Entrá desde el portal de Herramientas, con tu usuario de Lucciano's."}</p>
-      ${setup ? '' : `<a class="btn btn-acento btn-grande" href="${PORTAL}" style="text-decoration:none;justify-content:center">Ir al portal ${ICO.arrow}</a>`}
+      ${setup ? '' : `<a class="btn btn-acento btn-grande" href="${PORTAL}/#ir=${ACCESO_APP}" style="text-decoration:none;justify-content:center">Ir al portal ${ICO.arrow}</a>`}
       ${setup ? '' : (LOGIN_VIEJO ? '<details class="login-viejo" style="margin-top:22px"><summary style="cursor:pointer;color:var(--muted,#777);font-size:13.5px">Ingresar con la clave anterior de Asientos</summary><div style="margin-top:14px">' : '<div hidden>')}
       ${setup ? '<div class="campo"><label for="lg-n">Nombre</label><input id="lg-n" name="nombre" required autocomplete="name"></div>' : ''}
       <div class="campo"><label for="lg-u">Mail</label><input id="lg-u" name="email" type="email" required autocomplete="username"></div>
@@ -830,7 +836,7 @@ async function cargarYo() {
 }
 
 async function iniciar() {
-  await canjearAcceso();
+  if (await canjearAcceso() === 'redirigiendo') return;
   if (!S.token) return vistaLogin();
   try { await cargarYo(); } catch { return vistaLogin(); }
   empresas().catch(() => null);
