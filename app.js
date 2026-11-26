@@ -1378,10 +1378,10 @@ async function vistaLote(el, id) {
 // ---------------------------------------------------------------------------
 async function vistaAdmin(el) {
   if (!puede('admin')) { el.innerHTML = '<div class="panel panel-pad">Solo para administradores.</div>'; return; }
-  const nombres = ['Salud', 'Empresas', 'Plan de cuentas', 'Usuarios', 'Envío a Shares', 'Auditoría'];
-  el.innerHTML = `<div class="encabezado"><div><h1>Configuración</h1><p>Conexión con Shares, empresas y ejercicios, plan de cuentas, usuarios y auditoría.</p></div></div>
+  const nombres = ['Salud', 'Empresas', 'Plan de cuentas', 'Envío a Shares', 'Auditoría'];
+  el.innerHTML = `<div class="encabezado"><div><h1>Configuración</h1><p>Conexión con Shares, empresas y ejercicios, plan de cuentas y auditoría. Los usuarios se manejan en el portal de Herramientas.</p></div></div>
     <div class="panel"><div class="tabs" id="atabs">${nombres.map((t, i) => `<button data-t="${i}">${t}</button>`).join('')}</div><div id="acont" class="panel-pad"></div></div>`;
-  const tabs = [adminSalud, adminEmpresas, adminCuentas, adminUsuarios, adminConfig, adminAuditoria];
+  const tabs = [adminSalud, adminEmpresas, adminCuentas, adminConfig, adminAuditoria];
   const ir = async (i) => {
     sessionStorage.setItem('admin_tab', i);
     $$('#atabs button').forEach(b => b.classList.toggle('activo', b.dataset.t === String(i)));
