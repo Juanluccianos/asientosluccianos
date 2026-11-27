@@ -1465,15 +1465,17 @@ async function adminSalud(el) {
 async function adminEmpresas(el) {
   const r = await api('/api/empresas');
   S.empresas = r.empresas;
-  el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-fact">${ICO.download}Traer de la app de facturas</button><button class="btn" id="b-ne">${ICO.plus}Nueva empresa a mano</button></div>
+  const ext = (r.sociedades_ext || []).filter(x => !r.empresas.some(e => e.cuit === x.sigla));
+  el.innerHTML = `<div class="acciones" style="margin-bottom:12px">${r.ve_argentina === false ? '' : `<button class="btn btn-negro" id="b-fact">${ICO.download}Traer de la app de facturas</button><button class="btn" id="b-ne">${ICO.plus}Nueva empresa a mano</button>`}${ext.length ? `<button class="btn" id="b-ext">${ICO.plus}Agregar sociedad de otro país</button>` : ''}</div>
     <p class="small muted">El año del ejercicio es el que tiene abierto Shares para la empresa. Si no lo sabés, dejá el año en curso: si no coincide, Shares rechaza el primer asiento (sin registrar nada), avisa cuál es el correcto y la app lo corrige sola. Las fechas de inicio y cierre son opcionales.</p>
-    <div class="tabla-wrap"><table><thead><tr><th>CUIT</th><th>Razón social</th><th>Año</th><th>Ejercicio</th><th class="num">Cuentas</th><th>Estado</th><th></th></tr></thead><tbody>
+    <div class="tabla-wrap"><table><thead><tr><th>CUIT / sociedad</th><th>Razón social</th><th>Año</th><th>Ejercicio</th><th class="num">Cuentas</th><th>Estado</th><th></th></tr></thead><tbody>
     ${r.empresas.map(e => `<tr><td class="mono">${fmtCuit(e.cuit)}</td><td>${esc(e.razon_social)}</td><td class="mono">${esc(e.periodo_contable || '—')}</td>
       <td class="mono">${e.pdesde && e.phasta ? `${fmtF(e.pdesde)} al ${fmtF(e.phasta)}` : '<span class="txt-warn">sin fechas</span>'}</td><td class="num">${e.cuentas || '—'}</td>
       <td>${e.activa ? 'Activa' : '<span class="muted">Inactiva</span>'}</td><td class="acciones"><button class="btn btn-chico" data-ed="${e.cuit}">Editar</button><button class="btn btn-chico btn-rojo" data-del="${e.cuit}">Quitar</button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin empresas cargadas.</td></tr>'}
     </tbody></table></div>`;
   const form = (e = {}) => modal(`<h2>${e.cuit && !e.nueva ? 'Editar empresa' : 'Nueva empresa'}</h2><form id="f-emp">
-      <div class="fila"><div class="campo"><label>CUIT</label><input name="cuit" class="mono" value="${esc(e.cuit || '')}" ${e.cuit ? 'readonly' : ''} required></div>
+      ${e.pais && e.pais !== 'ARGENTINA' ? `<input type="hidden" name="pais" value="${esc(e.pais)}">` : ''}
+      <div class="fila"><div class="campo"><label>${e.pais && e.pais !== 'ARGENTINA' ? 'Sociedad (sigla en Shares)' : 'CUIT'}</label><input name="cuit" class="mono" value="${esc(e.cuit || '')}" ${e.cuit ? 'readonly' : ''} required></div>
       <div class="campo"><label>Año del ejercicio en Shares</label><input name="periodo_contable" class="mono" inputmode="numeric" value="${esc(e.periodo_contable || new Date().getFullYear())}" required></div></div>
       <div class="ayuda" style="margin:-4px 0 12px">Si no estás seguro, dejá el año en curso: si Shares tiene otro, lo avisa en el primer envío y la app lo corrige.</div>
       <div class="campo"><label>Razón social</label><input name="razon_social" value="${esc(e.razon_social || '')}" required></div>
@@ -1483,10 +1485,15 @@ async function adminEmpresas(el) {
       <button class="btn btn-negro" type="submit">Guardar</button></form>`, {
     alMontar: (m, cerrar) => { $('#f-emp', m).onsubmit = (ev) => { ev.preventDefault(); const b = Object.fromEntries(new FormData(ev.target)); b.activa = !!ev.target.elements.activa.checked; conBoton($('button[type=submit]', ev.target), async () => { await api('/api/empresas', { method: 'POST', body: b }); cerrar(); toast('Empresa guardada'); S.empresas = null; adminEmpresas(el); }); }; },
   });
-  $('#b-ne', el).onclick = () => form();
+  if ($('#b-ne', el)) $('#b-ne', el).onclick = () => form();
+  // Multi-país: las sociedades de otros países se agregan por su sigla de Shares (sin CUIT)
+  if ($('#b-ext', el)) $('#b-ext', el).onclick = () => modal(`<h2>Agregar sociedad de otro país</h2><p class="muted" style="margin-top:-6px">Se carga con su sigla de Shares: no lleva CUIT. Después confirmás el año del ejercicio.</p>
+      <div class="tabla-wrap"><table class="sin-orden"><tbody>${ext.map(x => `<tr><td class="mono">${esc(x.sigla)}</td><td>${esc(x.nombre)}</td><td class="num"><button class="btn btn-chico btn-negro" data-sigla="${esc(x.sigla)}">Agregar</button></td></tr>`).join('')}</tbody></table></div>`, {
+      alMontar: (m, cerrar) => $$('[data-sigla]', m).forEach(b => b.onclick = () => { const x = ext.find(y => y.sigla === b.dataset.sigla); cerrar(); form({ cuit: x.sigla, pais: x.sigla, razon_social: x.nombre, nueva: true }); }),
+    });
   // Las dos apps están en el mismo sitio (juanluccianos.github.io): si ya entraste a facturas en este navegador,
   // se usa esa sesión para leer sus empresas (solo lectura; no se toca nada de facturas).
-  $('#b-fact', el).onclick = () => conBoton($('#b-fact', el), async () => {
+  if ($('#b-fact', el)) $('#b-fact', el).onclick = () => conBoton($('#b-fact', el), async () => {
     let tokF = null, apiF = 'https://facturas-api.lucciano-viaticos.workers.dev';
     try { tokF = localStorage.getItem('facturas_token'); apiF = (localStorage.getItem('facturas_api') || apiF).replace(/\/$/, ''); } catch { }
     const sinSesion = () => modal(`<h2>Primero entrá a la app de facturas</h2><p>Para leer las empresas necesito tu sesión de facturas en <b>este mismo navegador</b>.</p>
